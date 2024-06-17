@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My Images</title>
+</head>
+<body>
+    <h2>My Images</h2>
+    <ul>
+        {% for image in images %}
+            <li>
+                {% if image.original_image %}
+                    <img src="{{ image.original_image.url }}" alt="{{ image.original_image.name }}">
+                {% else %}
+                    <p>No image available</p>
+                {% endif %}
+                <!-- Display image with its URL and alt text -->
+                <a href="{% url 'download_image' image.id %}">Download</a>
+            </li>
+        {% endfor %}
+    </ul>
+</body>
+</html>

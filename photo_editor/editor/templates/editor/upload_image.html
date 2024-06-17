@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo Editor</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/4.5.0/fabric.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="main-content">
+            <canvas id="canvas"></canvas>
+            <div class="toolbar">
+                <div class="buttons">
+                    <button id="reset">Reset</button>
+                    <button id="download">Download</button>
+                    <button id="collage">Collage</button>
+                    <button id="crop">Crop</button>
+                </div>
+                <div class="sliders">
+                    <label>Brightness:</label>
+                    <input type="range" id="brightness" min="-1" max="1" step="0.01">
+                    <label>Contrast:</label>
+                    <input type="range" id="contrast" min="-1" max="1" step="0.01">
+                    <label>Saturation:</label>
+                    <input type="range" id="saturation" min="-1" max="1" step="0.01">
+                    <label>Hue:</label>
+                    <input type="range" id="hue" min="-1" max="1" step="0.01">
+                </div>
+            </div>
+        </div>
+        <div class="bottom-toolbar">
+            <button id="chooseImageButton">Choose Image</button>
+            <input type="file" id="uploadImage" style="display:none;" />
+        </div>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const canvas = new fabric.Canvas('canvas', {
+                width: 700,
+                height: 500,
+                backgroundColor: '#fff'
+            });
+
+            let image = null;
+            let isCropping = false;
+            let cropRect = null;
+
+            document.getElementById('chooseImageButton').addEventListener('click', () => {
+                document.getElementById('uploadImage').click();
+            });
+
+            document.getElementById('uploadImage').addEventListener('change', (e) => {
+                const reader = new FileReader();
+                reader.onload = function (event) {
+                    fabric.Image.fromURL(event.target.result, (img) => {
+                        image = img;
+                        canvas.clear();
+                        canvas.add(image);
+                        canvas.renderAll();
+                    });
+                };
+                reader.readAsDataURL(e.target.files[0]);
+            });
+
+            document.getElementById('reset').addEventListener('click', () => {
+                if (image) {
+                    image.filters = [];
+                    image.applyFilters();
+                    canvas.renderAll();
+                }
+            });
+
+            document.getElementById('download').addEventListener('click', () => {
+                html2canvas(document.getElementById('canvas')).then((canvasElement) => {
+                    const dataURL = canvasElement.toDataURL('image/png');
+
+                    // Send the edited image to the server
+                    $.ajax({
+                        type: 'POST',
+                        url: '{% url "save_edited_image" %}',
+                        data: {
+                            'image': dataURL,
+                            'csrfmiddlewaretoken': '{{ csrf_token }}'
+                        },
+                        success: function(response) {
+                            if (response.status === 'success') {
+                                const link = document.createElement('a');
+                                link.href = dataURL;
+                                link.download = 'edited_image.png';
+                                link.click();
+                            } else {
+                                alert('Failed to save image.');
+                            }
+                        },
+                        error: function() {
+                            alert('Failed to save image.');
+                        }
+                    });
+                });
+            });
+
+            const adjustFilter = (filterType, value) => {
+                if (!image) return;
+                let filter = image.filters.find(f => f.type === filterType);
+                if (!filter) {
+                    filter = new fabric.Image.filters[filterType]({ [filterType.toLowerCase()]: value });
+                    image.filters.push(filter);
+                } else {
+                    filter[filterType.toLowerCase()] = value;
+                }
+                image.applyFilters();
+                canvas.renderAll();
+            };
+
+            document.getElementById('brightness').addEventListener('input', (e) => {
+                adjustFilter('Brightness', parseFloat(e.target.value));
+            });
+
+            document.getElementById('contrast').addEventListener('input', (e) => {
+                adjustFilter('Contrast', parseFloat(e.target.value));
+            });
+
+            document.getElementById('saturation').addEventListener('input', (e) => {
+                adjustFilter('Saturation', parseFloat(e.target.value));
+            });
+
+            document.getElementById('hue').addEventListener('input', (e) => {
+                adjustFilter('HueRotation', parseFloat(e.target.value));
+            });
+
+            document.getElementById('collage').addEventListener('click', () => {
+                const fileInputs = document.createElement('input');
+                fileInputs.type = 'file';
+                fileInputs.multiple = 'true';
+                fileInputs.accept = 'image/*';
+                fileInputs.onchange = function () {
+                    const files = this.files;
+                    if (files.length < 2) {
+                        alert('Please select at least 2 images for collage.');
+                        return;
+                    }
+                    if (files.length > 4) {
+                        alert('Please select at most 4 images for collage.');
+                        return;
+                    }
+                    const images = [];
+                    let imagesLoaded = 0;
+
+                    const mergeImagesIntoCollage = () => {
+                        const ctx = canvas.getContext('2d');
+                        let offsetX = 0;
+                        let offsetY = 0;
+
+                        images.forEach((img) => {
+                            ctx.drawImage(img, offsetX, offsetY, canvas.width / 2, canvas.height / 2);
+                            offsetX += canvas.width / 2;
+                            if (offsetX >= canvas.width) {
+                                offsetX = 0;
+                                offsetY += canvas.height / 2;
+                            }
+                        });
+                    };
+
+                    const loadImage = (file, index) => {
+                        const reader = new FileReader();
+                        reader.onload = function (event) {
+                            const img = new Image();
+                            img.onload = function () {
+                                images[index] = img;
+                                imagesLoaded++;
+                                if (imagesLoaded === files.length) {
+                                    mergeImagesIntoCollage();
+                                }
+                            };
+                            img.src = event.target.result;
+                        };
+                        reader.readAsDataURL(file);
+                    };
+
+                    for (let i = 0; i < files.length; i++) {
+                        loadImage(files[i], i);
+                    }
+                };
+                fileInputs.click();
+            });
+
+            document.getElementById('crop').addEventListener('click', () => {
+                if (!image || isCropping) return;
+
+                isCropping = true;
+
+                cropRect = new fabric.Rect({
+                    left: 100,
+                    top: 100,
+                    width: 200,
+                    height: 200,
+                    fill: 'rgba(0,0,0,0.3)',
+                    selectable: true,
+                    hasBorders: true,
+                    hasControls: true
+                });
+
+                canvas.add(cropRect);
+                canvas.setActiveObject(cropRect);
+                canvas.renderAll();
+            });
+
+            canvas.on('mouse:dblclick', () => {
+                if (!isCropping) return;
+
+                const left = cropRect.left;
+                const top = cropRect.top;
+                const width = cropRect.width * cropRect.scaleX;
+                const height = cropRect.height * cropRect.scaleY;
+
+                const cropped = new fabric.Image(image.getElement(), {
+                    left: 0,
+                    top: 0,
+                    width: image.width,
+                    height: image.height,
+                    cropX: left,
+                    cropY: top,
+                    scaleX: image.scaleX,
+                    scaleY: image.scaleY
+                });
+
+                cropped.set({
+                    left: 0,
+                    top: 0,
+                    width: width,
+                    height: height,
+                    scaleX: 1,
+                    scaleY: 1,
+                    clipTo: null
+                });
+
+                canvas.remove(image);
+                canvas.remove(cropRect);
+                canvas.add(cropped);
+                canvas.setActiveObject(cropped);
+                canvas.renderAll();
+
+                image = cropped;
+                isCropping = false;
+            });
+        });
+    </script>
+</body>
+</html>
+<style>
+    body {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background-color: #f0f0f0;
+    }
+
+    .container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background: #fff;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+    }
+
+    .main-content {
+        display: flex;
+        justify-content: space-between;
+        width: 100%;
+    }
+
+    .toolbar {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        width: 250px;
+        margin-left: 20px;
+    }
+
+    .buttons, .sliders {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .buttons button,
+    .sliders label,
+    .sliders input {
+        margin: 5px 0;
+        width: 100%;
+    }
+
+    #canvas {
+        border: 1px solid #ccc;
+    }
+
+    input[type="range"] {
+        width: 100%;
+    }
+
+    button {
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 10px;
+        cursor: pointer;
+        border-radius: 5px;
+    }
+
+    button:hover {
+        background-color: #0056b3;
+    }
+
+    .bottom-toolbar {
+        margin-top: 20px;
+    }
+
+    #chooseImageButton {
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        cursor: pointer;
+        border-radius: 5px;
+    }
+
+    #chooseImageButton:hover {
+        background-color: #0056b3;
+    }
+</style>

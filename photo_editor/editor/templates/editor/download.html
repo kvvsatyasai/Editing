@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Download Image</title>
+</head>
+<body>
+    <h2>Download Image</h2>
+    <img src="{{ image.original_image.url }}" alt="Original Image">
+    <br>
+    <a href="{{ image.original_image.url }}" download>Download Original</a>
+    {% if image.edited_image %}
+        <br>
+        <img src="{{ image.edited_image.url }}" alt="Edited Image">
+        <br>
+        <a href="{{ image.edited_image.url }}" download>Download Edited</a>
+    {% endif %}
+</body>
+</html>
